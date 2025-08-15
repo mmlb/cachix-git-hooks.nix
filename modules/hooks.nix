@@ -2817,43 +2817,16 @@ lib.escapeShellArgs (lib.concatMap (ext: [ "--ghc-opt" "-X${ext}" ]) hooks.fourm
           name = "gofmt";
           description = "A tool that automatically formats Go source code";
           package = tools.go;
-          entry =
-            let
-              script = pkgs.writeShellScript "precommit-gofmt" ''
-                set -e
-                failed=false
-                for file in "$@"; do
-                    # redirect stderr so that violations and summaries are properly interleaved.
-                    if ! ${hooks.gofmt.package}/bin/gofmt -l -w "$file" 2>&1
-                    then
-                        failed=true
-                    fi
-                done
-                if [[ $failed == "true" ]]; then
-                    exit 1
-                fi
-              '';
-            in
-            builtins.toString script;
+          entry = "${hooks.gofmt.package}/bin/gofmt -l -w 2>&1";
           files = "\\.go$";
         };
       golangci-lint = {
         name = "golangci-lint";
         description = "Fast linters runner for Go.";
         package = tools.golangci-lint;
-        entry =
-          let
-            script = pkgs.writeShellScript "precommit-golangci-lint" ''
-              set -e
-              for dir in $(echo "$@" | xargs -n1 dirname | sort -u); do
-                ${hooks.golangci-lint.package}/bin/golangci-lint run ./"$dir"
-              done
-            '';
-          in
-          builtins.toString script;
+        entry = "${hooks.golangci-lint.package}/bin/golangci-lint run";
         files = "\\.go$";
-        # to avoid multiple invocations of the same directory input, provide
-        # all file names in a single run.
+        # to avoid multiple invocations of the same directory input, provide all file names in a single run.
         require_serial = true;
       };
       golines =
@@ -2861,24 +2834,7 @@ lib.escapeShellArgs (lib.concatMap (ext: [ "--ghc-opt" "-X${ext}" ]) hooks.fourm
           name = "golines";
           description = "A golang formatter that fixes long lines";
           package = tools.golines;
-          entry =
-            let
-              script = pkgs.writeShellScript "precommit-golines" ''
-                set -e
-                failed=false
-                for file in "$@"; do
-                    # redirect stderr so that violations and summaries are properly interleaved.
-                    if ! ${hooks.golines.package}/bin/golines ${hooks.golines.settings.flags} -w "$file" 2>&1
-                    then
-                        failed=true
-                    fi
-                done
-                if [[ $failed == "true" ]]; then
-                    exit 1
-                fi
-              '';
-            in
-            builtins.toString script;
+          entry = "${hooks.golines.package}/bin/golines ${hooks.golines.settings.flags} -w";
           files = "\\.go$";
         };
       gotest = {
@@ -2889,37 +2845,12 @@ lib.escapeShellArgs (lib.concatMap (ext: [ "--ghc-opt" "-X${ext}" ]) hooks.fourm
           let
             script = pkgs.writeShellScript "precommit-gotest" ''
               set -e
-              # find all directories that contain tests
-              dirs=()
-              for file in "$@"; do
-                # either the file is a test
-                if [[ "$file" = *_test.go ]]; then
-                  dirs+=("$(dirname "$file")")
-                  continue
-                fi
-
-                # or the file has an associated test
-                filename="''${file%.go}"
-                test_file="''${filename}_test.go"
-                if [[ -f "$test_file"  ]]; then
-                  dirs+=("$(dirname "$test_file")")
-                  continue
-                fi
-              done
-
-              # ensure we are not duplicating dir entries
-              IFS=$'\n' sorted_dirs=($(sort -u <<<"''${dirs[*]}")); unset IFS
-
-              # test each directory one by one
-              for dir in "''${sorted_dirs[@]}"; do
-                  ${hooks.gotest.package}/bin/go test ${hooks.gotest.settings.flags} "./$dir"
-              done
+              dirname "$@" | sort -u | sed 's|^|./|' | xargs ${hooks.gotest.package}/bin/go test ${hooks.gotest.settings.flags}
             '';
           in
           builtins.toString script;
         files = "\\.go$";
-        # to avoid multiple invocations of the same directory input, provide
-        # all file names in a single run.
+        # to avoid multiple invocations of the same directory input, provide all file names in a single run.
         require_serial = true;
       };
       govet =
@@ -2929,17 +2860,12 @@ lib.escapeShellArgs (lib.concatMap (ext: [ "--ghc-opt" "-X${ext}" ]) hooks.fourm
           package = tools.go;
           entry =
             let
-              # go vet requires package (directory) names as inputs.
               script = pkgs.writeShellScript "precommit-govet" ''
-                set -e
-                for dir in $(echo "$@" | xargs -n1 dirname | sort -u); do
-                  ${hooks.govet.package}/bin/go vet -C ./"$dir"
-                done
+                dirname "$@" | sort -u | sed 's|^|./|' | xargs ${hooks.govet.package}/bin/go vet
               '';
             in
             builtins.toString script;
-          # to avoid multiple invocations of the same directory input, provide
-          # all file names in a single run.
+          # to avoid multiple invocations of the same directory input, provide all file names in a single run.
           require_serial = true;
           files = "\\.go$";
         };
@@ -3653,16 +3579,12 @@ lib.escapeShellArgs (lib.concatMap (ext: [ "--ghc-opt" "-X${ext}" ]) hooks.fourm
               # rather than a package/directory scope; given this let's get the
               # directories from each individual file.
               script = pkgs.writeShellScript "precommit-revive" ''
-                set -e
-                for dir in $(echo "$@" | xargs -n1 dirname | sort -u); do
-                  ${hooks.revive.package}/bin/revive ${cmdArgs} ./"$dir"
-                done
+                dirname "$@" | sort -u | sed 's|^|./|' | xargs ${hooks.revive.package}/bin/revive ${cmdArgs}
               '';
             in
             builtins.toString script;
           files = "\\.go$";
-          # to avoid multiple invocations of the same directory input, provide
-          # all file names in a single run.
+          # to avoid multiple invocations of the same directory input, provide all file names in a single run.
           require_serial = true;
         };
       ripsecrets =
@@ -3831,21 +3753,12 @@ lib.escapeShellArgs (lib.concatMap (ext: [ "--ghc-opt" "-X${ext}" ]) hooks.fourm
           entry =
             let
               script = pkgs.writeShellScript "precommit-staticcheck" ''
-                err=0
-                for dir in $(echo "$@" | xargs -n1 dirname | sort -u); do
-                  ${hooks.staticcheck.package}/bin/staticcheck ./"$dir"
-                  code="$?"
-                  if [[ "$err" -eq 0 ]]; then
-                     err="$code"
-                  fi
-                done
-                exit $err
+                dirname "$@" | sort -u | sed 's|^|./|' | xargs ${hooks.staticcheck.package}/bin/staticcheck
               '';
             in
             builtins.toString script;
           files = "\\.go$";
-          # to avoid multiple invocations of the same directory input, provide
-          # all file names in a single run.
+          # to avoid multiple invocations of the same directory input, provide all file names in a single run.
           require_serial = true;
         };
       statix =
